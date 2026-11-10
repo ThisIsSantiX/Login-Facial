@@ -1,0 +1,28 @@
+# Python environments and caches
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.venv/
+venv/
+export_venv/
+fas_repo/
+
+# Local credentials and configuration
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+
+# Runtime user data and debug selfies
+*.db
+*.db-*
+*.sqlite
+*.sqlite3
+backend/debug_last/
+
+# Local tooling and logs
+.claude/
+*.log
+.DS_Store
+Thumbs.db
