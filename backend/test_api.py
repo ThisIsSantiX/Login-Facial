@@ -11,6 +11,7 @@ Para probar el modelo anti-suplantación con fotos reales y falsas:
 """
 import os
 import tempfile
+from contextlib import closing
 
 import cv2
 import numpy as np
@@ -96,21 +97,56 @@ def sin_prueba_de_vida(monkeypatch):
 @needs_photos
 def test_misma_foto_dos_veces_no_pasa_la_prueba_de_vida():
     r = client.post(
-        "/register", data={"username": "foto", "full_name": "F"}, files=photos(photo(A))
+        "/register", data={"username": "foto", "pin": "1234"}, files=photos(photo(A))
     )
     assert r.status_code == 422
     assert "gira" in r.json()["detail"]
 
 
 @needs_photos
+def test_register_rechaza_pin_invalido():
+    # El PIN se valida antes de tocar las fotos.
+    r = client.post(
+        "/register", data={"username": "corto", "pin": "12"}, files=photos(photo(A))
+    )
+    assert r.status_code == 400
+    assert "4 dígitos" in r.json()["detail"]
+
+
+@needs_photos
+def test_identify_sin_usuarios(sin_prueba_de_vida):
+    # Debe ir antes de cualquier /register exitoso: la DB está vacía.
+    r = client.post("/identify", files=photos(photo(A)))
+    assert r.status_code == 401
+    assert "registrados" in r.json()["detail"]
+
+
+@needs_photos
+def test_identify_reconoce_sin_escribir_usuario(sin_prueba_de_vida):
+    # Diana es la única cara B registrada; los demás usuarios son cara A.
+    client.post(
+        "/register",
+        data={"username": "diana", "pin": "1234"},
+        files=photos(photo(B)),
+    )
+    r = client.post("/identify", files=photos(photo(B)))
+    assert r.status_code == 200, r.text
+    body = r.json()
+    assert body["username"] == "diana"
+
+    r = client.get("/me", headers={"Authorization": f"Bearer {body['token']}"})
+    assert r.json()["username"] == "diana"
+
+
+@needs_photos
 def test_flujo_completo(sin_prueba_de_vida):
     r = client.post(
-        "/register", data={"username": "ana", "full_name": "Ana"}, files=photos(photo(A))
+        "/register", data={"username": "ana", "pin": "1234"}, files=photos(photo(A))
     )
     assert r.status_code == 200, r.text
 
     r = client.post(
-        "/register", data={"username": "ana", "full_name": "Ana"}, files=photos(photo(A))
+        "/register", data={"username": "ana", "pin": "1234"}, files=photos(photo(A))
     )
     assert r.status_code == 409
 
@@ -138,7 +174,7 @@ def test_sin_rostro():
     blank = lambda img: img * 0  # noqa: E731
     r = client.post(
         "/register",
-        data={"username": "nadie", "full_name": "X"},
+        data={"username": "nadie", "pin": "1234"},
         files=photos(photo(A, blank)),
     )
     assert r.status_code == 422
@@ -147,7 +183,7 @@ def test_sin_rostro():
 @needs_photos
 def test_bloqueo_por_intentos(sin_prueba_de_vida):
     client.post(
-        "/register", data={"username": "beto", "full_name": "Beto"}, files=photos(photo(A))
+        "/register", data={"username": "beto", "pin": "1234"}, files=photos(photo(A))
     )
     for _ in range(5):
         r = client.post("/login", data={"username": "beto"}, files=photos(photo(B)))
@@ -162,13 +198,58 @@ def test_suplantacion_cuenta_como_intento_fallido():
     with pytest.MonkeyPatch.context() as mp:
         mp.setattr(main.engine, "check_liveness", lambda front, turned: None)
         client.post(
-            "/register", data={"username": "caro", "full_name": "C"}, files=photos(photo(A))
+            "/register", data={"username": "caro", "pin": "1234"}, files=photos(photo(A))
         )
     for _ in range(5):
         r = client.post("/login", data={"username": "caro"}, files=photos(photo(A)))
         assert r.status_code == 401
     r = client.post("/login", data={"username": "caro"}, files=photos(photo(A)))
     assert r.status_code == 429
+
+
+# --- Login con PIN (sin escáner) ------------------------------------------------
+
+
+@needs_photos
+def test_login_pin_flujo(sin_prueba_de_vida):
+    r = client.post(
+        "/register", data={"username": "pino", "pin": "4321"}, files=photos(photo(A))
+    )
+    assert r.status_code == 200, r.text
+
+    # PIN correcto: entra sin fotos.
+    r = client.post("/login_pin", data={"username": "pino", "pin": "4321"})
+    assert r.status_code == 200, r.text
+    token = r.json()["token"]
+    r = client.get("/me", headers={"Authorization": f"Bearer {token}"})
+    assert r.json()["username"] == "pino"
+
+    # PIN incorrecto: cuenta como intento fallido.
+    for _ in range(5):
+        r = client.post("/login_pin", data={"username": "pino", "pin": "0000"})
+        assert r.status_code == 401
+        assert "PIN" in r.json()["detail"]
+    # Bloqueado: ni el PIN correcto entra.
+    r = client.post("/login_pin", data={"username": "pino", "pin": "4321"})
+    assert r.status_code == 429
+
+
+def test_login_pin_usuario_inexistente():
+    r = client.post("/login_pin", data={"username": "nobody99", "pin": "1234"})
+    assert r.status_code == 404
+
+
+def test_login_pin_usuario_sin_pin():
+    # Usuario de antes del PIN: se inserta directo en la DB sin pin_hash.
+    with closing(main.db()) as conn, conn:
+        conn.execute(
+            "INSERT INTO users (username, full_name, embedding, created_at) "
+            "VALUES (?, ?, ?, ?)",
+            ("viejo", "viejo", np.zeros(128, np.float32).tobytes(), 0.0),
+        )
+    r = client.post("/login_pin", data={"username": "viejo", "pin": "1234"})
+    assert r.status_code == 401
+    assert "PIN" in r.json()["detail"]
 
 
 # --- Modelo anti-suplantación --------------------------------------------------

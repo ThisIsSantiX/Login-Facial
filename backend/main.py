@@ -1,15 +1,20 @@
 """API de login con reconocimiento facial.
 
 Endpoints:
-  POST /register  (form: username, full_name, photo, photo_turn) -> registra el rostro
-  POST /login     (form: username, photo, photo_turn)            -> devuelve un token
-  GET  /me        (Authorization: Bearer <token>)     -> datos del usuario
-  POST /logout    (Authorization: Bearer <token>)
+  POST /register   (form: username, pin, photo, photo_turn) -> registra rostro + PIN
+  POST /login      (form: username, photo, photo_turn)      -> devuelve un token
+  POST /login_pin  (form: username, pin)                    -> token sin escáner
+  POST /identify   (form: photo, photo_turn)  -> reconoce quién es y devuelve un token
+  GET  /me         (Authorization: Bearer <token>)     -> datos del usuario
+  POST /logout     (Authorization: Bearer <token>)
 
 `photo` es una selfie de frente y `photo_turn` otra con la cabeza girada hacia
 un lado; con las dos se comprueba que hay una persona real (prueba de vida).
 """
+import hashlib
+import hmac
 import os
+import re
 import secrets
 import sqlite3
 import time
@@ -19,7 +24,14 @@ from pathlib import Path
 import numpy as np
 from fastapi import Depends, FastAPI, File, Form, Header, HTTPException, UploadFile
 
-from face_engine import FaceEngine, FaceError, FaceSample, LivenessError, log
+from face_engine import (
+    COSINE_THRESHOLD,
+    FaceEngine,
+    FaceError,
+    FaceSample,
+    LivenessError,
+    log,
+)
 
 DB_PATH = Path(os.environ.get("FACE_DB", Path(__file__).parent / "users.db"))
 DEBUG_DIR = Path(os.environ["FACE_DEBUG_DIR"]) if os.environ.get("FACE_DEBUG_DIR") else None
@@ -28,6 +40,9 @@ TOKEN_TTL_SECONDS = 7 * 24 * 3600
 # Tras varios intentos fallidos se bloquea el usuario un rato.
 MAX_FAILED_ATTEMPTS = 5
 LOCK_SECONDS = 5 * 60
+# PIN de los usuarios dados de alta antes de existir el PIN (solo migración).
+LEGACY_PIN = "1234"
+PIN_ITERATIONS = 100_000
 
 app = FastAPI(title="Face Login")
 engine = FaceEngine()
@@ -49,7 +64,8 @@ def init_db() -> None:
                 embedding BLOB NOT NULL,
                 failed_attempts INTEGER NOT NULL DEFAULT 0,
                 locked_until REAL NOT NULL DEFAULT 0,
-                created_at REAL NOT NULL
+                created_at REAL NOT NULL,
+                pin_hash TEXT
             );
             CREATE TABLE IF NOT EXISTS sessions (
                 token TEXT PRIMARY KEY,
@@ -58,6 +74,38 @@ def init_db() -> None:
             );
             """
         )
+        cols = {row[1] for row in conn.execute("PRAGMA table_info(users)")}
+        if "pin_hash" not in cols:
+            conn.execute("ALTER TABLE users ADD COLUMN pin_hash TEXT")
+        # Usuarios registrados antes del PIN reciben el PIN por defecto.
+        legacy = conn.execute(
+            "SELECT username FROM users WHERE pin_hash IS NULL"
+        ).fetchall()
+        for user in legacy:
+            conn.execute(
+                "UPDATE users SET pin_hash = ? WHERE username = ?",
+                (hash_pin(LEGACY_PIN), user["username"]),
+            )
+
+
+def hash_pin(pin: str) -> str:
+    """PBKDF2 con salt aleatorio: el PIN nunca se guarda en claro."""
+    salt = secrets.token_hex(16)
+    digest = hashlib.pbkdf2_hmac(
+        "sha256", pin.encode(), bytes.fromhex(salt), PIN_ITERATIONS
+    )
+    return f"{salt}:{digest.hex()}"
+
+
+def check_pin(pin: str, stored: str) -> bool:
+    try:
+        salt, expected = stored.split(":", 1)
+    except ValueError:
+        return False
+    digest = hashlib.pbkdf2_hmac(
+        "sha256", pin.encode(), bytes.fromhex(salt), PIN_ITERATIONS
+    )
+    return hmac.compare_digest(digest.hex(), expected)
 
 
 init_db()
@@ -89,6 +137,48 @@ def clean_username(username: str) -> str:
     return username
 
 
+def _create_session(conn: sqlite3.Connection, username: str, now: float) -> str:
+    """Crea un token de sesión y limpia el estado del usuario."""
+    token = secrets.token_urlsafe(32)
+    conn.execute(
+        "UPDATE users SET failed_attempts = 0, locked_until = 0 WHERE username = ?",
+        (username,),
+    )
+    conn.execute("DELETE FROM sessions WHERE expires_at < ?", (now,))
+    conn.execute(
+        "INSERT INTO sessions (token, username, expires_at) VALUES (?, ?, ?)",
+        (token, username, now + TOKEN_TTL_SECONDS),
+    )
+    return token
+
+
+def clean_pin(pin: str) -> str:
+    pin = pin.strip()
+    if not re.fullmatch(r"\d{4}", pin):
+        raise HTTPException(400, "El PIN debe tener 4 dígitos.")
+    return pin
+
+
+def _check_lock(user: sqlite3.Row, now: float) -> None:
+    if user["locked_until"] > now:
+        wait = int(user["locked_until"] - now) // 60 + 1
+        raise HTTPException(429, f"Demasiados intentos. Espera {wait} min.")
+
+
+def _register_failure(
+    conn: sqlite3.Connection, username: str, failed_attempts: int, now: float
+) -> None:
+    """Suma un intento fallido y bloquea si se pasa del límite."""
+    attempts = failed_attempts + 1
+    locked = now + LOCK_SECONDS if attempts >= MAX_FAILED_ATTEMPTS else 0
+    conn.execute(
+        "UPDATE users SET failed_attempts = ?, locked_until = ? WHERE username = ?",
+        (0 if locked else attempts, locked, username),
+    )
+    # El commit hace efectivo el contador antes de lanzar el 401.
+    conn.commit()
+
+
 @app.get("/health")
 def health():
     return {"ok": True}
@@ -97,11 +187,12 @@ def health():
 @app.post("/register")
 async def register(
     username: str = Form(...),
-    full_name: str = Form(...),
+    pin: str = Form(...),
     photo: UploadFile = File(...),
     photo_turn: UploadFile = File(...),
 ):
     username = clean_username(username)
+    pin = clean_pin(pin)
     front, turned = analyze_pair(await read_photo(photo), await read_photo(photo_turn))
     try:
         engine.check_liveness(front, turned)
@@ -115,9 +206,15 @@ async def register(
         if exists:
             raise HTTPException(409, "Ese usuario ya existe.")
         conn.execute(
-            "INSERT INTO users (username, full_name, embedding, created_at) "
-            "VALUES (?, ?, ?, ?)",
-            (username, full_name.strip()[:80], front.vector.tobytes(), time.time()),
+            "INSERT INTO users (username, full_name, embedding, pin_hash, created_at) "
+            "VALUES (?, ?, ?, ?, ?)",
+            (
+                username,
+                username,
+                front.vector.tobytes(),
+                hash_pin(pin),
+                time.time(),
+            ),
         )
     return {"ok": True, "message": "Rostro registrado."}
 
@@ -139,9 +236,7 @@ async def login(
         ).fetchone()
         if user is None:
             raise HTTPException(404, "Usuario no registrado.")
-        if user["locked_until"] > now:
-            wait = int(user["locked_until"] - now) // 60 + 1
-            raise HTTPException(429, f"Demasiados intentos. Espera {wait} min.")
+        _check_lock(user, now)
 
         front, turned = analyze_pair(front_data, turned_data)
         stored = np.frombuffer(user["embedding"], dtype=np.float32)
@@ -157,34 +252,88 @@ async def login(
             reason = str(e)
         if reason:
             log.info("login %s rechazado: %s", username, reason)
-
-        if reason:
-            attempts = user["failed_attempts"] + 1
-            locked = now + LOCK_SECONDS if attempts >= MAX_FAILED_ATTEMPTS else 0
-            conn.execute(
-                "UPDATE users SET failed_attempts = ?, locked_until = ? "
-                "WHERE username = ?",
-                (0 if locked else attempts, locked, username),
-            )
-            # Sin commit explícito, la excepción haría rollback del contador.
-            conn.commit()
+            _register_failure(conn, username, user["failed_attempts"], now)
             raise HTTPException(401, reason)
 
-        token = secrets.token_urlsafe(32)
-        conn.execute(
-            "UPDATE users SET failed_attempts = 0, locked_until = 0 WHERE username = ?",
-            (username,),
-        )
-        conn.execute("DELETE FROM sessions WHERE expires_at < ?", (now,))
-        conn.execute(
-            "INSERT INTO sessions (token, username, expires_at) VALUES (?, ?, ?)",
-            (token, username, now + TOKEN_TTL_SECONDS),
-        )
+        token = _create_session(conn, username, now)
     return {
         "token": token,
         "username": username,
         "full_name": user["full_name"],
         "score": round(score, 3),
+    }
+
+
+@app.post("/login_pin")
+async def login_pin(username: str = Form(...), pin: str = Form(...)):
+    """Entra con usuario y PIN, sin escáner facial."""
+    username = clean_username(username)
+    pin = pin.strip()
+    now = time.time()
+
+    with closing(db()) as conn, conn:
+        user = conn.execute(
+            "SELECT * FROM users WHERE username = ?", (username,)
+        ).fetchone()
+        if user is None:
+            raise HTTPException(404, "Usuario no registrado.")
+        _check_lock(user, now)
+        if not user["pin_hash"]:
+            raise HTTPException(401, "Este usuario no tiene PIN.")
+        if not check_pin(pin, user["pin_hash"]):
+            log.info("login_pin %s rechazado: PIN incorrecto", username)
+            _register_failure(conn, username, user["failed_attempts"], now)
+            raise HTTPException(401, "PIN incorrecto.")
+        token = _create_session(conn, username, now)
+    return {
+        "token": token,
+        "username": username,
+        "full_name": user["full_name"],
+    }
+
+
+@app.post("/identify")
+async def identify(
+    photo: UploadFile = File(...),
+    photo_turn: UploadFile = File(...),
+):
+    """Reconoce al usuario por el rostro, sin escribir el nombre."""
+    front_data = await read_photo(photo)
+    turned_data = await read_photo(photo_turn)
+    now = time.time()
+
+    front, turned = analyze_pair(front_data, turned_data)
+    try:
+        engine.check_liveness(front, turned)
+    except LivenessError as e:
+        log.info("identify rechazado: %s", e)
+        raise HTTPException(401, str(e))
+
+    with closing(db()) as conn, conn:
+        users = conn.execute(
+            "SELECT username, full_name, embedding FROM users"
+        ).fetchall()
+        if not users:
+            raise HTTPException(401, "No hay usuarios registrados.")
+        best_user = None
+        best_score = -1.0
+        for user in users:
+            stored = np.frombuffer(user["embedding"], dtype=np.float32)
+            score = engine.similarity(front.vector, stored)
+            if score > best_score:
+                best_score = score
+                best_user = user
+        log.info(
+            "identify %s: coincidencia=%.2f", best_user["username"], best_score
+        )
+        if best_score < COSINE_THRESHOLD:
+            raise HTTPException(401, "Rostro no reconocido.")
+        token = _create_session(conn, best_user["username"], now)
+    return {
+        "token": token,
+        "username": best_user["username"],
+        "full_name": best_user["full_name"],
+        "score": round(best_score, 3),
     }
 
 

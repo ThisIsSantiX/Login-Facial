@@ -13,8 +13,10 @@ const apiUrl = String.fromEnvironment(
 );
 
 class ApiException implements Exception {
-  ApiException(this.message);
+  ApiException(this.message, [this.status]);
   final String message;
+  /// Código HTTP; null si no hubo respuesta (fallo de red).
+  final int? status;
   @override
   String toString() => message;
 }
@@ -43,7 +45,10 @@ class Api {
       );
       final body = jsonDecode(utf8.decode(res.bodyBytes));
       if (res.statusCode >= 400) {
-        throw ApiException(body['detail']?.toString() ?? 'Error ${res.statusCode}');
+        throw ApiException(
+          body['detail']?.toString() ?? 'Error ${res.statusCode}',
+          res.statusCode,
+        );
       }
       return body as Map<String, dynamic>;
     } on ApiException {
@@ -68,12 +73,12 @@ class Api {
 
   static Future<void> register(
     String username,
-    String fullName,
+    String pin,
     FacePhotos photos,
   ) async {
     await _send(_multipart(
       '/register',
-      {'username': username, 'full_name': fullName},
+      {'username': username, 'pin': pin},
       photos,
     ));
   }
@@ -82,6 +87,25 @@ class Api {
     final data = await _send(
       _multipart('/login', {'username': username}, photos),
     );
+    return _openSession(data);
+  }
+
+  /// Entra con usuario y PIN, sin escáner facial.
+  static Future<User> loginPin(String username, String pin) async {
+    final data = await _send(
+      http.Request('POST', Uri.parse('$apiUrl/login_pin'))
+        ..bodyFields = {'username': username, 'pin': pin},
+    );
+    return _openSession(data);
+  }
+
+  /// Reconoce al usuario por el rostro, sin escribir el nombre.
+  static Future<User> identify(FacePhotos photos) async {
+    final data = await _send(_multipart('/identify', {}, photos));
+    return _openSession(data);
+  }
+
+  static Future<User> _openSession(Map<String, dynamic> data) async {
     final prefs = await SharedPreferences.getInstance();
     await prefs.setString(_tokenKey, data['token']);
     return User(data['username'], data['full_name']);
