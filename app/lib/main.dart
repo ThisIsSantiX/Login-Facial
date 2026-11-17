@@ -1,4 +1,4 @@
-﻿import 'package:flutter/material.dart';
+import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
 import 'api.dart';
@@ -7,7 +7,7 @@ import 'face_scan.dart';
 
 void main() {
   WidgetsFlutterBinding.ensureInitialized();
-  // Solo vertical: simplifica la rotaciÃ³n de la cÃ¡mara para el detector.
+  // Solo vertical: simplifica la rotación de la cámara para el detector.
   SystemChrome.setPreferredOrientations([DeviceOrientation.portraitUp]);
   runApp(const FaceLoginApp());
 }
@@ -22,7 +22,7 @@ class FaceLoginApp extends StatelessWidget {
       debugShowCheckedModeBanner: false,
       theme: ThemeData(
         colorSchemeSeed: Colors.indigo,
-        // Transiciones simples: menos trabajo para GPUs dÃ©biles.
+        // Transiciones simples: menos trabajo para GPUs débiles.
         pageTransitionsTheme: const PageTransitionsTheme(builders: {
           TargetPlatform.android: FadeUpwardsPageTransitionsBuilder(),
         }),
@@ -32,7 +32,7 @@ class FaceLoginApp extends StatelessWidget {
   }
 }
 
-/// Revisa si hay sesiÃ³n guardada y decide a quÃ© pantalla ir.
+/// Revisa si hay sesión guardada y decide a qué pantalla ir.
 class StartScreen extends StatefulWidget {
   const StartScreen({super.key});
 
@@ -60,23 +60,69 @@ class _StartScreenState extends State<StartScreen> {
       );
 }
 
-/// Explica en una tarjeta lo que va a pasar al escanear.
+/// Icono + texto explicativo. Va dentro de una BezierCard.
 class ScanInfo extends StatelessWidget {
   const ScanInfo({super.key});
 
   @override
   Widget build(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
-    return BezierCard(
-      child: Row(
+    return Row(
+      children: [
+        Icon(Icons.face_retouching_natural, size: 40, color: scheme.primary),
+        const SizedBox(width: 16),
+        const Expanded(
+          child: Text(
+            'Se abrirá la cámara. Mira de frente, parpadea y gira la cabeza '
+            'cuando te lo indique. Las fotos se toman solas.',
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+/// Encabezado centrado (icono en círculo + título + subtítulo) para la
+/// zona índigo del fondo.
+class _ScreenHeader extends StatelessWidget {
+  const _ScreenHeader({
+    required this.title,
+    required this.subtitle,
+    this.icon = Icons.face,
+  });
+
+  final String title;
+  final String subtitle;
+  final IconData icon;
+
+  @override
+  Widget build(BuildContext context) {
+    return Center(
+      child: Column(
         children: [
-          Icon(Icons.face_retouching_natural, size: 40, color: scheme.primary),
-          const SizedBox(width: 16),
-          const Expanded(
-            child: Text(
-              'Se abrirÃ¡ la cÃ¡mara. Mira de frente, parpadea y gira la cabeza '
-              'cuando te lo pida. Las fotos se toman solas.',
+          Container(
+            padding: const EdgeInsets.all(14),
+            decoration: BoxDecoration(
+              color: Colors.white.withValues(alpha: 0.16),
+              shape: BoxShape.circle,
             ),
+            child: Icon(icon, size: 36, color: Colors.white),
+          ),
+          const SizedBox(height: 12),
+          Text(
+            title,
+            textAlign: TextAlign.center,
+            style: const TextStyle(
+              color: Colors.white,
+              fontSize: 24,
+              fontWeight: FontWeight.w700,
+            ),
+          ),
+          const SizedBox(height: 6),
+          Text(
+            subtitle,
+            textAlign: TextAlign.center,
+            style: const TextStyle(color: Colors.white70, fontSize: 14),
           ),
         ],
       ),
@@ -102,7 +148,7 @@ class _LoginScreenState extends State<LoginScreen> {
   final _pin = TextEditingController();
   bool _busy = false;
   // Por defecto se entra con el rostro; si el reconocimiento falla, se
-  // sugiere entrar con usuario y PIN (sin escÃ¡ner).
+  // sugiere entrar con usuario y PIN (sin escáner).
   bool _useUsername = false;
 
   @override
@@ -129,9 +175,10 @@ class _LoginScreenState extends State<LoginScreen> {
     } on ApiException catch (e) {
       if (!mounted) return;
       if (e.status == 401) {
-        // FallÃ³ la autenticaciÃ³n biomÃ©trica: sugiere entrar con usuario+PIN.
+        // Falló la autenticación biométrica: sugiere entrar con usuario+PIN.
         setState(() => _useUsername = true);
-        showError(context, '${e.message}. Entra con tu usuario y PIN.');
+        final msg = e.message.replaceAll(RegExp(r'\.+$'), '');
+        showError(context, '$msg. Entra con tu usuario y PIN.');
       } else {
         showError(context, e);
       }
@@ -149,7 +196,7 @@ class _LoginScreenState extends State<LoginScreen> {
       return;
     }
     if (_pin.text.length != 4) {
-      showError(context, 'Escribe tu PIN de 4 dÃ­gitos.');
+      showError(context, 'Escribe tu PIN de 4 dígitos.');
       return;
     }
     setState(() => _busy = true);
@@ -169,82 +216,102 @@ class _LoginScreenState extends State<LoginScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(
-        title: const Text('Iniciar sesiÃ³n'),
-        backgroundColor: const Color(0xFF3F51B5),
-        foregroundColor: Colors.white,
-        elevation: 0,
-      ),
       body: BezierBackground(
-        child: ListView(
-          padding: const EdgeInsets.all(24),
-          children: [
-            if (_useUsername) ...[
-              const SizedBox(height: 8),
-              const Text(
-                'Entra con tu usuario y tu PIN de 4 dÃ­gitos.',
-                textAlign: TextAlign.center,
+        child: SafeArea(
+          child: ListView(
+            padding: const EdgeInsets.fromLTRB(24, 28, 24, 32),
+            children: [
+              const _ScreenHeader(
+                title: 'Face Login',
+                subtitle: 'Entra con tu rostro o con tu usuario y PIN',
               ),
-              const SizedBox(height: 24),
-              TextField(
-                controller: _username,
-                decoration: const InputDecoration(
-                  labelText: 'Usuario',
-                  border: OutlineInputBorder(),
-                  filled: true,
-                  fillColor: Colors.white,
-                ),
-                textInputAction: TextInputAction.next,
-                autocorrect: false,
+              const SizedBox(height: 28),
+              BezierCard(
+                child: _useUsername ? _buildPinForm() : const ScanInfo(),
               ),
-              const SizedBox(height: 16),
-              TextField(
-                controller: _pin,
-                decoration: const InputDecoration(
-                  labelText: 'PIN (4 dÃ­gitos)',
-                  border: OutlineInputBorder(),
-                  filled: true,
-                  fillColor: Colors.white,
-                  counterText: '',
-                ),
-                keyboardType: TextInputType.number,
-                obscureText: true,
-                maxLength: 4,
-                textInputAction: TextInputAction.done,
+              const SizedBox(height: 28),
+              FilledButton(
+                style: FilledButton.styleFrom(shape: const BezierButtonShape()),
+                onPressed: _busy ? null : _login,
+                child: _busy
+                    ? const SizedBox.square(
+                        dimension: 20,
+                        child: CircularProgressIndicator(strokeWidth: 2),
+                      )
+                    : Text(_useUsername ? 'Entrar' : 'Entrar con mi rostro'),
               ),
-            ] else
-              const ScanInfo(),
-            const SizedBox(height: 24),
-            FilledButton(
-              style: FilledButton.styleFrom(shape: const BezierButtonShape()),
-              onPressed: _busy ? null : _login,
-              child: _busy
-                  ? const SizedBox.square(
-                      dimension: 20,
-                      child: CircularProgressIndicator(strokeWidth: 2),
-                    )
-                  : Text(_useUsername ? 'Entrar' : 'Entrar con mi rostro'),
-            ),
-            TextButton(
-              onPressed: _busy
-                  ? null
-                  : () => setState(() => _useUsername = !_useUsername),
-              child: Text(
-                _useUsername ? 'Entrar solo con mi rostro' : 'Usar mi usuario',
+              const SizedBox(height: 4),
+              Row(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  TextButton(
+                    onPressed: _busy
+                        ? null
+                        : () => setState(() => _useUsername = !_useUsername),
+                    child: Text(
+                      _useUsername
+                          ? 'Entrar con mi rostro'
+                          : 'Usar usuario y PIN',
+                    ),
+                  ),
+                  TextButton(
+                    onPressed: _busy
+                        ? null
+                        : () => Navigator.of(context).push(
+                              MaterialPageRoute(
+                                  builder: (_) => const RegisterScreen()),
+                            ),
+                    child: const Text('Crear cuenta'),
+                  ),
+                ],
               ),
-            ),
-            TextButton(
-              onPressed: _busy
-                  ? null
-                  : () => Navigator.of(context).push(
-                        MaterialPageRoute(
-                            builder: (_) => const RegisterScreen()),
-                      ),
-              child: const Text('Crear cuenta'),
-            ),
-          ],
+            ],
+          ),
         ),
       ),
+    );
+  }
+
+  /// Formulario usuario + PIN (va dentro de la tarjeta Bézier).
+  Widget _buildPinForm() {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        const Text(
+          'Entra con tu usuario y tu PIN de 4 dígitos.',
+          textAlign: TextAlign.center,
+          style: TextStyle(fontSize: 15, fontWeight: FontWeight.w600),
+        ),
+        const SizedBox(height: 16),
+        TextField(
+          controller: _username,
+          autofocus: true,
+          decoration: const InputDecoration(
+            labelText: 'Usuario',
+            border: OutlineInputBorder(),
+            filled: true,
+            fillColor: Colors.white,
+          ),
+          textInputAction: TextInputAction.next,
+          autocorrect: false,
+        ),
+        const SizedBox(height: 16),
+        TextField(
+          controller: _pin,
+          decoration: const InputDecoration(
+            labelText: 'PIN (4 dígitos)',
+            border: OutlineInputBorder(),
+            filled: true,
+            fillColor: Colors.white,
+            counterText: '',
+          ),
+          keyboardType: TextInputType.number,
+          obscureText: true,
+          maxLength: 4,
+          textInputAction: TextInputAction.done,
+          onSubmitted: _busy ? null : (_) => _loginWithPin(),
+        ),
+      ],
     );
   }
 }
@@ -275,7 +342,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
       return;
     }
     if (!RegExp(r'^\d{4}$').hasMatch(_pin.text)) {
-      showError(context, 'El PIN debe tener 4 dÃ­gitos.');
+      showError(context, 'El PIN debe tener 4 dígitos.');
       return;
     }
     final photos = await FaceScanScreen.open(context);
@@ -298,55 +365,83 @@ class _RegisterScreenState extends State<RegisterScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(
-        title: const Text('Crear cuenta'),
-        backgroundColor: const Color(0xFF3F51B5),
-        foregroundColor: Colors.white,
-        elevation: 0,
-      ),
       body: BezierBackground(
-        child: ListView(
-          padding: const EdgeInsets.all(24),
+        child: Stack(
           children: [
-            const ScanInfo(),
-            const SizedBox(height: 24),
-            TextField(
-              controller: _username,
-              decoration: const InputDecoration(
-                labelText: 'Usuario',
-                helperText: 'Letras, nÃºmeros o _ (3 a 30)',
-                border: OutlineInputBorder(),
-                filled: true,
-                fillColor: Colors.white,
+            SafeArea(
+              child: ListView(
+                padding: const EdgeInsets.fromLTRB(24, 28, 24, 32),
+                children: [
+                  const _ScreenHeader(
+                    title: 'Crear cuenta',
+                    subtitle:
+                        'Elige tu usuario, un PIN de 4 dígitos y registra tu rostro',
+                    icon: Icons.person_add_alt_1,
+                  ),
+                  const SizedBox(height: 28),
+                  BezierCard(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.stretch,
+                      children: [
+                        const ScanInfo(),
+                        const SizedBox(height: 16),
+                        TextField(
+                          controller: _username,
+                          decoration: const InputDecoration(
+                            labelText: 'Usuario',
+                            helperText: 'De 3 a 30: letras, números o _',
+                            border: OutlineInputBorder(),
+                            filled: true,
+                            fillColor: Colors.white,
+                          ),
+                          textInputAction: TextInputAction.next,
+                          autocorrect: false,
+                        ),
+                        const SizedBox(height: 16),
+                        TextField(
+                          controller: _pin,
+                          decoration: const InputDecoration(
+                            labelText: 'PIN (4 dígitos)',
+                            helperText:
+                                'Lo usarás para entrar sin escanear tu rostro',
+                            border: OutlineInputBorder(),
+                            filled: true,
+                            fillColor: Colors.white,
+                            counterText: '',
+                          ),
+                          keyboardType: TextInputType.number,
+                          obscureText: true,
+                          maxLength: 4,
+                          textInputAction: TextInputAction.done,
+                          onSubmitted: _busy ? null : (_) => _register(),
+                        ),
+                      ],
+                    ),
+                  ),
+                  const SizedBox(height: 28),
+                  FilledButton(
+                    style:
+                        FilledButton.styleFrom(shape: const BezierButtonShape()),
+                    onPressed: _busy ? null : _register,
+                    child: _busy
+                        ? const SizedBox.square(
+                            dimension: 20,
+                            child: CircularProgressIndicator(strokeWidth: 2),
+                          )
+                        : const Text('Registrar mi rostro'),
+                  ),
+                ],
               ),
-              autocorrect: false,
             ),
-            const SizedBox(height: 16),
-            TextField(
-              controller: _pin,
-              decoration: const InputDecoration(
-                labelText: 'PIN (4 dÃ­gitos)',
-                helperText: 'Lo usarÃ¡s para entrar sin escanear el rostro',
-                border: OutlineInputBorder(),
-                filled: true,
-                fillColor: Colors.white,
-                counterText: '',
+            Align(
+              alignment: Alignment.topLeft,
+              child: SafeArea(
+                child: IconButton(
+                  tooltip: 'Volver',
+                  icon: const Icon(Icons.arrow_back, color: Colors.white),
+                  onPressed: _busy ? null : () => Navigator.of(context).pop(),
+                ),
               ),
-              keyboardType: TextInputType.number,
-              obscureText: true,
-              maxLength: 4,
-              textInputAction: TextInputAction.done,
-            ),
-            const SizedBox(height: 24),
-            FilledButton(
-              style: FilledButton.styleFrom(shape: const BezierButtonShape()),
-              onPressed: _busy ? null : _register,
-              child: _busy
-                  ? const SizedBox.square(
-                      dimension: 20,
-                      child: CircularProgressIndicator(strokeWidth: 2),
-                    )
-                  : const Text('Registrar mi rostro'),
             ),
           ],
         ),
@@ -370,7 +465,7 @@ class HomeScreen extends StatelessWidget {
         elevation: 0,
         actions: [
           IconButton(
-            tooltip: 'Cerrar sesiÃ³n',
+            tooltip: 'Cerrar sesión',
             icon: const Icon(Icons.logout),
             onPressed: () async {
               await Api.logout();

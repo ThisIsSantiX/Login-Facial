@@ -31,7 +31,8 @@ class _BezierBackgroundPainter extends CustomPainter {
     final w = size.width;
     final h = size.height;
 
-    // Degradado: índigo arriba que se disuelve en fondo claro.
+    // Degradado: índigo arriba (zona del encabezado) que se disuelve en
+    // fondo claro antes de las tarjetas y el botón.
     final bg = Paint()
       ..shader = const LinearGradient(
         begin: Alignment.topCenter,
@@ -42,25 +43,25 @@ class _BezierBackgroundPainter extends CustomPainter {
           Color(0xFFEDF0FB),
           Color(0xFFFDFDFF),
         ],
-        stops: [0.0, 0.14, 0.30, 1.0],
+        stops: [0.0, 0.20, 0.34, 1.0],
       ).createShader(Offset.zero & size);
     canvas.drawRect(Offset.zero & size, bg);
 
     // Onda clara 1: banda translúcida cuyo borde superior es una cúbica.
     final wave1 = Path()
-      ..moveTo(0, h * 0.10)
-      ..cubicTo(w * 0.28, h * 0.18, w * 0.55, h * 0.06, w, h * 0.14)
-      ..lineTo(w, h * 0.30)
-      ..lineTo(0, h * 0.30)
+      ..moveTo(0, h * 0.14)
+      ..cubicTo(w * 0.28, h * 0.22, w * 0.55, h * 0.10, w, h * 0.18)
+      ..lineTo(w, h * 0.32)
+      ..lineTo(0, h * 0.32)
       ..close();
     canvas.drawPath(wave1, Paint()..color = Colors.white.withValues(alpha: 0.20));
 
     // Onda clara 2: más abajo y más tenue, para el efecto de capas.
     final wave2 = Path()
-      ..moveTo(0, h * 0.20)
-      ..cubicTo(w * 0.35, h * 0.13, w * 0.62, h * 0.27, w, h * 0.19)
-      ..lineTo(w, h * 0.36)
-      ..lineTo(0, h * 0.36)
+      ..moveTo(0, h * 0.24)
+      ..cubicTo(w * 0.35, h * 0.17, w * 0.62, h * 0.31, w, h * 0.23)
+      ..lineTo(w, h * 0.38)
+      ..lineTo(0, h * 0.38)
       ..close();
     canvas.drawPath(wave2, Paint()..color = Colors.white.withValues(alpha: 0.16));
 
