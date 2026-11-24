@@ -1,0 +1,301 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Face Login | Tu rostro es tu acceso</title>
+  <meta name="description" content="Face Login: app móvil con reconocimiento facial, prueba de vida y autenticación sin credenciales, pensada para teléfonos de gama baja.">
+  <meta name="theme-color" content="#0A1020">
+  <meta property="og:title" content="Face Login | Tu rostro es tu acceso">
+  <meta property="og:description" content="Dos selfies guiadas, un vector de 128 valores y una decisión en milisegundos.">
+  <meta property="og:type" content="website">
+  <link rel="icon" href="data:,">
+  <script>document.documentElement.classList.add('js');</script>
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <a class="skip-link" href="#main">Saltar al contenido</a>
+
+  <header class="site-header">
+    <div class="container header__inner">
+      <a class="brand" href="#inicio" aria-label="Face Login, ir al inicio">
+        <svg class="brand__logo" viewBox="0 0 32 32" fill="none" aria-hidden="true" focusable="false">
+          <defs>
+            <linearGradient id="brandGradient" x1="0" y1="0" x2="32" y2="32" gradientUnits="userSpaceOnUse">
+              <stop class="brand__logo-stop-a" offset="0"/>
+              <stop class="brand__logo-stop-b" offset="1"/>
+            </linearGradient>
+          </defs>
+          <rect x="0.5" y="0.5" width="31" height="31" rx="9" fill="url(#brandGradient)"/>
+          <g class="brand__logo-corners" stroke="currentColor" stroke-width="2" stroke-linecap="round">
+            <path d="M8 12V9a1 1 0 0 1 1-1h3"/>
+            <path d="M20 8h3a1 1 0 0 1 1 1v3"/>
+            <path d="M24 20v3a1 1 0 0 1-1 1h-3"/>
+            <path d="M12 24H9a1 1 0 0 1-1-1v-3"/>
+          </g>
+          <g class="brand__logo-face" stroke="#FFFFFF" stroke-width="1.8" stroke-linecap="round">
+            <path d="M12.5 14.5v1"/>
+            <path d="M19.5 14.5v1"/>
+            <path d="M13.5 19c1.2 1 3.8 1 5 0"/>
+          </g>
+          <path class="brand__logo-scan" d="M9 16h14" stroke="#7DD3FC" stroke-width="1.5" stroke-linecap="round"/>
+        </svg>
+        <span>Face<span class="brand__accent">Login</span></span>
+      </a>
+      <button class="nav-toggle" type="button" aria-expanded="false" aria-controls="site-nav" aria-label="Abrir menú de navegación">
+        <span class="nav-toggle__bars" aria-hidden="true"><span></span><span></span><span></span></span>
+      </button>
+      <nav class="site-nav" id="site-nav" aria-label="Navegación principal">
+        <a href="#inicio">Inicio</a>
+        <a href="#registro">Alta</a>
+        <a href="#escaneo">Escaneo</a>
+        <a href="#neuronal">IA</a>
+        <a href="#seguridad">Seguridad</a>
+        <a href="#herramientas">Stack</a>
+      </nav>
+    </div>
+  </header>
+
+  <main id="main">
+    <section class="section section--hero" id="inicio">
+      <div class="container grid-12 hero__grid">
+        <div class="hero__copy" data-reveal>
+          <p class="eyebrow eyebrow--light">Autenticación biométrica · Proyecto académico</p>
+          <h1>Entra con tu rostro.<br><span>Sin contraseñas.</span></h1>
+          <p class="lead">Dos selfies guiadas, un vector de 128 valores y una decisión en milisegundos. Pensado para móviles de gama baja.</p>
+          <div class="hero__actions">
+            <a class="button button--primary" href="#registro">Ver cómo funciona <span aria-hidden="true">↓</span></a>
+            <a class="button button--text" href="#seguridad">Ver la prueba de vida <span aria-hidden="true">↓</span></a>
+          </div>
+          <dl class="metrics">
+            <div><dt>2</dt><dd>selfies guiadas</dd></div>
+            <div><dt>128</dt><dd>valores por rostro</dd></div>
+            <div><dt>0</dt><dd>credenciales que recordar</dd></div>
+          </dl>
+        </div>
+        <figure class="hero__visual" data-reveal>
+          <div class="phone phone--hero">
+            <div class="phone__notch" aria-hidden="true"></div>
+            <div class="phone__screen">
+              <picture>
+                <source type="image/avif" srcset="assets/01-login-480.avif 480w, assets/01-login-720.avif 720w" sizes="(max-width: 640px) 280px, 360px">
+                <source type="image/webp" srcset="assets/01-login-480.webp 480w, assets/01-login-720.webp 720w" sizes="(max-width: 640px) 280px, 360px">
+                <img src="assets/01-login.png" width="1080" height="2400" alt="Pantalla de inicio de Face Login con la opción Entrar con mi rostro" fetchpriority="high" decoding="async">
+              </picture>
+            </div>
+          </div>
+          <span class="float-badge" aria-hidden="true"><strong>128</strong> valores<br>sin foto original</span>
+          <figcaption class="visual__caption visual__caption--light">Pantalla real de la app · Inicio de sesión</figcaption>
+        </figure>
+      </div>
+    </section>
+
+    <section class="section section--alta" id="registro">
+      <div class="container">
+        <header class="section__head" data-reveal>
+          <p class="eyebrow">01 · Alta de usuario</p>
+          <h2>Registrarse es guardar una huella, no una foto.</h2>
+          <p class="section__intro">Nombre, PIN de respaldo y consentimiento. Después, dos selfies guiadas.</p>
+        </header>
+        <div class="bento" data-reveal-group>
+          <article class="card" data-reveal>
+            <span class="card__num">01</span>
+            <h3>Usuario + PIN de respaldo</h3>
+            <p>El PIN se guarda con PBKDF2-HMAC-SHA256 de 100.000 iteraciones, nunca en texto plano.</p>
+          </article>
+          <article class="card" data-reveal>
+            <span class="card__num">02</span>
+            <h3>Consentimiento versionado</h3>
+            <p>La versión <code>2026-11-23-v1</code> queda registrada con fecha y hora. Mejora de IA opcional y revocable.</p>
+          </article>
+          <article class="card" data-reveal>
+            <span class="card__num">03</span>
+            <h3>Plantilla biométrica</h3>
+            <p>El servidor guarda un vector de 128 números. La selfie original no se conserva.</p>
+          </article>
+          <article class="card" data-reveal>
+            <span class="card__num">04</span>
+            <h3>Registro asequible</h3>
+            <p>Una sola cuenta, dos capturas y listo. Sin formularios largos ni verificaciones por correo.</p>
+          </article>
+          <article class="card card--accent card--span2" data-reveal>
+            <span class="card__num card__num--light">Dato clave</span>
+            <strong class="card__metric">128</strong>
+            <p>números por rostro. Suficientes para distinguir personas sin almacenar su imagen.</p>
+          </article>
+        </div>
+      </div>
+    </section>
+
+    <section class="section section--scan" id="escaneo">
+      <div class="container grid-12">
+        <div class="scan__copy" data-reveal>
+          <p class="eyebrow">02 · Captura guiada</p>
+          <h2>El móvil guía. El servidor decide.</h2>
+          <p>El detector ligero del teléfono solo acompaña al usuario: centrar el rostro, parpadear y girar la cabeza. Las fotos se envían al backend para la decisión final.</p>
+          <ol class="steps">
+            <li><span class="steps__num">1</span><div><strong>Centrar</strong><p>Una sola persona, buena luz y el rostro dentro del óvalo.</p></div></li>
+            <li><span class="steps__num">2</span><div><strong>Parpadear</strong><p>El detector local comprueba que los ojos están abiertos.</p></div></li>
+            <li><span class="steps__num">3</span><div><strong>Girar</strong><p>Segunda selfie con la cabeza de lado para la prueba de vida.</p></div></li>
+          </ol>
+          <p class="note">El teléfono no ejecuta el reconocedor pesado: por eso la app arranca rápido y no calienta los equipos de 1–2 GB de RAM.</p>
+        </div>
+        <figure class="scan__visual" data-reveal>
+          <div class="phone">
+            <div class="phone__notch" aria-hidden="true"></div>
+            <div class="phone__screen">
+              <picture>
+                <source type="image/avif" srcset="assets/03-facescan-480.avif 480w, assets/03-facescan-720.avif 720w" sizes="(max-width: 640px) 280px, 320px">
+                <source type="image/webp" srcset="assets/03-facescan-480.webp 480w, assets/03-facescan-720.webp 720w" sizes="(max-width: 640px) 280px, 320px">
+                <img src="assets/03-facescan.png" width="1080" height="2400" alt="Escáner facial con óvalo, instrucciones y giro de cabeza" loading="lazy" decoding="async">
+              </picture>
+            </div>
+          </div>
+          <figcaption class="visual__caption">Pantalla real de la app · Escaneo facial</figcaption>
+        </figure>
+      </div>
+    </section>
+
+    <section class="section section--ia" id="neuronal">
+      <div class="container">
+        <header class="section__head" data-reveal>
+          <p class="eyebrow">03 · El corazón del sistema</p>
+          <h2>Una red que reconoce personas sin reentrenarse.</h2>
+          <p class="lead">SFace es una CNN MobileFaceNet preentrenada: recibe una cara alineada de 112×112 píxeles y devuelve 128 números, la “huella” del rostro.</p>
+        </header>
+        <div class="pipeline" data-reveal-group>
+          <article class="pipe-card" data-reveal><span class="pipe-card__num">1</span><h3>Captura</h3><p>ML Kit guía el encuadre en el móvil.</p></article>
+          <article class="pipe-card" data-reveal><span class="pipe-card__num">2</span><h3>Detección</h3><p>YuNet localiza 5 puntos faciales.</p></article>
+          <article class="pipe-card" data-reveal><span class="pipe-card__num">3</span><h3>Realidad</h3><p>MiniFASNet + paralaje 3D.</p></article>
+          <article class="pipe-card" data-reveal><span class="pipe-card__num">4</span><h3>Embedding</h3><p>SFace convierte la cara en 128 valores.</p></article>
+          <article class="pipe-card pipe-card--result" data-reveal>
+            <div>
+              <span class="pipe-card__num">5</span>
+              <h3>Decisión</h3>
+              <p><code>/identify</code> compara con todos los vectores guardados. Si el mejor coseno supera <code>0,363</code>, crea la sesión.</p>
+            </div>
+            <strong class="pipe-card__threshold">&gt; 0,363</strong>
+          </article>
+        </div>
+        <aside class="callout" data-reveal>
+          <h3>Aprendizaje métrico, no memorización de nombres</h3>
+          <p>Durante su entrenamiento la red aprendió un espacio vectorial: las fotos de la misma persona quedan cerca y las de personas distintas, lejos. No entrenamos los modelos desde cero: los convertimos a ONNX y calibramos los umbrales.</p>
+        </aside>
+        <div class="vector-strip" data-reveal>
+          <span class="vector-strip__label">Embedding SFace</span>
+          <code>[0.21, −0.07, 0.44, … 128 valores]</code>
+        </div>
+      </div>
+    </section>
+
+    <section class="section section--security" id="seguridad">
+      <div class="container">
+        <div class="grid-12 security__top">
+          <div class="security__copy" data-reveal>
+            <p class="eyebrow eyebrow--light">04 · Seguridad y privacidad</p>
+            <h2>Tres barreras antes de abrir la sesión.</h2>
+            <p>Dos selfies, tres comprobaciones independientes y una sesión que expira. Ninguna foto original se guarda como credencial.</p>
+          </div>
+          <figure class="security__visual" data-reveal>
+            <div class="phone-pair">
+              <div class="phone phone--small">
+                <div class="phone__notch" aria-hidden="true"></div>
+                <div class="phone__screen">
+                  <picture>
+                    <source type="image/avif" srcset="assets/04-home-480.avif 480w" sizes="220px">
+                    <source type="image/webp" srcset="assets/04-home-480.webp 480w" sizes="220px">
+                    <img src="assets/04-home.png" width="1080" height="2400" alt="Pantalla principal con acceso biométrico activo" loading="lazy" decoding="async">
+                  </picture>
+                </div>
+              </div>
+              <div class="phone phone--small">
+                <div class="phone__notch" aria-hidden="true"></div>
+                <div class="phone__screen">
+                  <picture>
+                    <source type="image/avif" srcset="assets/05-legal-480.avif 480w" sizes="220px">
+                    <source type="image/webp" srcset="assets/05-legal-480.webp 480w" sizes="220px">
+                    <img src="assets/05-legal.png" width="1080" height="2400" alt="Pantalla de términos y condiciones de la app" loading="lazy" decoding="async">
+                  </picture>
+                </div>
+              </div>
+            </div>
+            <figcaption class="visual__caption visual__caption--light">Sesión activa y documentación legal</figcaption>
+          </figure>
+        </div>
+        <div class="security__cards" data-reveal-group>
+          <article class="security-card" data-reveal>
+            <span class="security-card__num">01</span>
+            <h3>Anti-suplantación</h3>
+            <p>Dos variantes de MiniFASNet promedian la probabilidad de cara real; umbral <code>0,6</code>. Detecta impresiones y pantallas por textura y frecuencias.</p>
+          </article>
+          <article class="security-card" data-reveal>
+            <span class="security-card__num">02</span>
+            <h3>Paralaje 3D</h3>
+            <p>Con ojos, nariz y comisuras se calcula cómo se deformaría una foto plana al girar. Una nariz real se desvía de esa predicción.</p>
+          </article>
+          <article class="security-card" data-reveal>
+            <span class="security-card__num">03</span>
+            <h3>Coherencia y sesión</h3>
+            <p>Ambas fotos deben ser la misma persona. Tras 5 intentos fallidos hay 5 minutos de bloqueo; el token aleatorio dura 7 días.</p>
+          </article>
+        </div>
+        <p class="security__note"><strong>Estado honesto de la demo:</strong> HTTP y SQLite sin cifrar en reposo. Antes de producción: HTTPS, cifrado de embeddings y calibración con usuarios reales.</p>
+      </div>
+    </section>
+
+    <section class="section section--stack" id="herramientas">
+      <div class="container grid-12">
+        <div class="stack__copy" data-reveal>
+          <p class="eyebrow">05 · Herramientas</p>
+          <h2>Un stack pequeño, elegido para gama baja.</h2>
+          <p>El reconocimiento pesa en el servidor; el teléfono solo muestra una guía ligera y sube dos fotos comprimidas.</p>
+          <div class="table-scroll" role="region" aria-label="Tabla de herramientas y motivo de elección" tabindex="0">
+            <table>
+              <caption class="sr-only">Herramientas usadas, función y motivo de elección</caption>
+              <thead><tr><th scope="col">Herramienta</th><th scope="col">Para qué</th><th scope="col">Por qué</th></tr></thead>
+              <tbody>
+                <tr><th scope="row">Flutter / Dart</th><td>App Android</td><td>Compila nativo, arranca rápido y usa menos RAM.</td></tr>
+                <tr><th scope="row">Camera + ML Kit</th><td>Guía en vivo</td><td>Detector ligero en el móvil; no envía video.</td></tr>
+                <tr><th scope="row">FastAPI + Uvicorn</th><td>API REST</td><td>Formularios multipart, validación y <code>/docs</code>.</td></tr>
+                <tr><th scope="row">OpenCV + ONNX</th><td>YuNet, SFace, MiniFASNet</td><td>Modelos portables; el servidor no necesita PyTorch.</td></tr>
+                <tr><th scope="row">NumPy + SQLite</th><td>Vectores y persistencia</td><td>Sin servicios externos ni configuración pesada.</td></tr>
+                <tr><th scope="row">PBKDF2 + secrets</th><td>PIN y tokens</td><td>Hash lento, comparación constante y sesiones aleatorias.</td></tr>
+                <tr><th scope="row">shared_preferences</th><td>Sesión local</td><td>Restaura la sesión sin volver a escanear.</td></tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+        <div class="stack__visual" aria-label="Capas del sistema: cliente, API, modelos y datos">
+          <div class="layers" data-reveal-group>
+            <div class="layer" data-reveal><span>Cliente</span><strong>Flutter · Android</strong></div>
+            <div class="layer" data-reveal><span>API</span><strong>FastAPI · Uvicorn</strong></div>
+            <div class="layer" data-reveal><span>Modelos</span><strong>OpenCV · ONNX</strong></div>
+            <div class="layer" data-reveal><span>Datos</span><strong>SQLite · vectores</strong></div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section class="section section--cta" aria-labelledby="cta-title">
+      <div class="container">
+        <div class="cta__panel" data-reveal>
+          <div>
+            <p class="eyebrow eyebrow--light">Recorrido completo</p>
+            <h2 id="cta-title">Del rostro a la sesión, en cinco pasos.</h2>
+          </div>
+          <a class="button button--light" href="#registro">Repasar el flujo <span aria-hidden="true">↑</span></a>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <footer class="site-footer">
+    <div class="container">
+      <p><strong>Face Login</strong> · Reconocimiento facial con prueba de vida y autenticación sin credenciales.</p>
+      <p>Proyecto demostrativo · Wanda.dev · Barranquilla, Colombia</p>
+    </div>
+  </footer>
+
+  <script src="main.js"></script>
+</body>
+</html>
