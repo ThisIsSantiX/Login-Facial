@@ -19,6 +19,7 @@ import secrets
 import sqlite3
 import time
 from contextlib import closing
+from datetime import datetime, timezone
 from pathlib import Path
 
 import numpy as np
@@ -35,6 +36,7 @@ from face_engine import (
 
 DB_PATH = Path(os.environ.get("FACE_DB", Path(__file__).parent / "users.db"))
 DEBUG_DIR = Path(os.environ["FACE_DEBUG_DIR"]) if os.environ.get("FACE_DEBUG_DIR") else None
+CURRENT_TERMS_VERSION = "2026-11-23-v1"
 MAX_UPLOAD_BYTES = 2 * 1024 * 1024
 TOKEN_TTL_SECONDS = 7 * 24 * 3600
 # Tras varios intentos fallidos se bloquea el usuario un rato.
@@ -65,18 +67,44 @@ def init_db() -> None:
                 failed_attempts INTEGER NOT NULL DEFAULT 0,
                 locked_until REAL NOT NULL DEFAULT 0,
                 created_at REAL NOT NULL,
-                pin_hash TEXT
+                pin_hash TEXT,
+                terms_accepted INTEGER NOT NULL DEFAULT 0,
+                terms_version TEXT,
+                consent_at REAL,
+                ai_improvement_opt_in INTEGER NOT NULL DEFAULT 0,
+                ai_consent_at REAL,
+                consent_salt TEXT
             );
             CREATE TABLE IF NOT EXISTS sessions (
                 token TEXT PRIMARY KEY,
                 username TEXT NOT NULL REFERENCES users(username),
                 expires_at REAL NOT NULL
             );
+            CREATE TABLE IF NOT EXISTS ai_improvement_samples (
+                sample_id TEXT PRIMARY KEY,
+                subject_hash TEXT NOT NULL,
+                embedding BLOB NOT NULL,
+                terms_version TEXT NOT NULL,
+                created_at REAL NOT NULL
+            );
+            CREATE INDEX IF NOT EXISTS idx_ai_samples_subject
+                ON ai_improvement_samples(subject_hash);
             """
         )
         cols = {row[1] for row in conn.execute("PRAGMA table_info(users)")}
         if "pin_hash" not in cols:
             conn.execute("ALTER TABLE users ADD COLUMN pin_hash TEXT")
+        new_user_columns = {
+            "terms_accepted": "INTEGER NOT NULL DEFAULT 0",
+            "terms_version": "TEXT",
+            "consent_at": "REAL",
+            "ai_improvement_opt_in": "INTEGER NOT NULL DEFAULT 0",
+            "ai_consent_at": "REAL",
+            "consent_salt": "TEXT",
+        }
+        for name, definition in new_user_columns.items():
+            if name not in cols:
+                conn.execute(f"ALTER TABLE users ADD COLUMN {name} {definition}")
         # Usuarios registrados antes del PIN reciben el PIN por defecto.
         legacy = conn.execute(
             "SELECT username FROM users WHERE pin_hash IS NULL"
@@ -159,6 +187,49 @@ def clean_pin(pin: str) -> str:
     return pin
 
 
+def _parse_consent_bool(value: str, field: str) -> bool:
+    normalized = value.strip().lower()
+    if normalized in {"true", "1", "yes", "si"}:
+        return True
+    if normalized in {"false", "0", "no"}:
+        return False
+    raise HTTPException(422, f"{field} no es válido.")
+
+
+def _parse_consent_time(value: str) -> float:
+    try:
+        parsed = datetime.fromisoformat(value.strip().replace("Z", "+00:00"))
+    except ValueError:
+        raise HTTPException(422, "La fecha de consentimiento no es válida.")
+    if parsed.tzinfo is None:
+        parsed = parsed.replace(tzinfo=timezone.utc)
+    return parsed.timestamp()
+
+
+def _subject_hash(username: str, salt: str) -> str:
+    return hashlib.sha256(f"{salt}:{username}".encode()).hexdigest()
+
+
+def _replace_ai_sample(
+    conn: sqlite3.Connection,
+    username: str,
+    salt: str,
+    embedding: bytes,
+    enabled: bool,
+    terms_version: str,
+    now: float,
+) -> None:
+    subject = _subject_hash(username, salt)
+    conn.execute("DELETE FROM ai_improvement_samples WHERE subject_hash = ?", (subject,))
+    if enabled:
+        conn.execute(
+            "INSERT INTO ai_improvement_samples "
+            "(sample_id, subject_hash, embedding, terms_version, created_at) "
+            "VALUES (?, ?, ?, ?, ?)",
+            (secrets.token_hex(16), subject, embedding, terms_version, now),
+        )
+
+
 def _check_lock(user: sqlite3.Row, now: float) -> None:
     if user["locked_until"] > now:
         wait = int(user["locked_until"] - now) // 60 + 1
@@ -190,15 +261,28 @@ async def register(
     pin: str = Form(...),
     photo: UploadFile = File(...),
     photo_turn: UploadFile = File(...),
+    terms_accepted: str = Form(...),
+    terms_version: str = Form(...),
+    ai_improvement_opt_in: str = Form("false"),
+    consent_at: str = Form(...),
 ):
     username = clean_username(username)
     pin = clean_pin(pin)
+    if not _parse_consent_bool(terms_accepted, "terms_accepted"):
+        raise HTTPException(422, "Debes aceptar los términos y condiciones.")
+    if terms_version.strip() != CURRENT_TERMS_VERSION:
+        raise HTTPException(409, "La versión de los términos no es vigente. Actualiza la app.")
+    ai_opt_in = _parse_consent_bool(ai_improvement_opt_in, "ai_improvement_opt_in")
+    consent_time = _parse_consent_time(consent_at)
     front, turned = analyze_pair(await read_photo(photo), await read_photo(photo_turn))
     try:
         engine.check_liveness(front, turned)
     except LivenessError as e:
         log.info("registro %s rechazado: %s", username, e)
         raise HTTPException(422, str(e))
+    embedding = front.vector.tobytes()
+    salt = secrets.token_hex(16)
+    created_at = time.time()
     with closing(db()) as conn, conn:
         exists = conn.execute(
             "SELECT 1 FROM users WHERE username = ?", (username,)
@@ -206,15 +290,31 @@ async def register(
         if exists:
             raise HTTPException(409, "Ese usuario ya existe.")
         conn.execute(
-            "INSERT INTO users (username, full_name, embedding, pin_hash, created_at) "
-            "VALUES (?, ?, ?, ?, ?)",
+            "INSERT INTO users (username, full_name, embedding, pin_hash, created_at, "
+            "terms_accepted, terms_version, consent_at, ai_improvement_opt_in, "
+            "ai_consent_at, consent_salt) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
             (
                 username,
                 username,
-                front.vector.tobytes(),
+                embedding,
                 hash_pin(pin),
-                time.time(),
+                created_at,
+                1,
+                CURRENT_TERMS_VERSION,
+                consent_time,
+                int(ai_opt_in),
+                consent_time if ai_opt_in else None,
+                salt,
             ),
+        )
+        _replace_ai_sample(
+            conn,
+            username,
+            salt,
+            embedding,
+            ai_opt_in,
+            CURRENT_TERMS_VERSION,
+            created_at,
         )
     return {"ok": True, "message": "Rostro registrado."}
 
@@ -349,6 +449,49 @@ def current_user(authorization: str = Header(default="")) -> sqlite3.Row:
     if row is None:
         raise HTTPException(401, "Sesión inválida o vencida.")
     return row
+
+
+@app.post("/consent")
+def update_consent(
+    ai_improvement_opt_in: str = Form(...),
+    terms_version: str = Form(...),
+    user: sqlite3.Row = Depends(current_user),
+):
+    enabled = _parse_consent_bool(ai_improvement_opt_in, "ai_improvement_opt_in")
+    if terms_version.strip() != CURRENT_TERMS_VERSION:
+        raise HTTPException(409, "La versión de los términos no es vigente. Actualiza la app.")
+    now = time.time()
+    with closing(db()) as conn, conn:
+        row = conn.execute(
+            "SELECT embedding, consent_salt FROM users WHERE username = ?",
+            (user["username"],),
+        ).fetchone()
+        if row is None:
+            raise HTTPException(404, "Usuario no registrado.")
+        salt = row["consent_salt"] or secrets.token_hex(16)
+        conn.execute(
+            "UPDATE users SET terms_accepted = 1, terms_version = ?, "
+            "consent_at = COALESCE(consent_at, ?), ai_improvement_opt_in = ?, "
+            "ai_consent_at = ?, consent_salt = ? WHERE username = ?",
+            (
+                CURRENT_TERMS_VERSION,
+                now,
+                int(enabled),
+                now,
+                salt,
+                user["username"],
+            ),
+        )
+        _replace_ai_sample(
+            conn,
+            user["username"],
+            salt,
+            row["embedding"],
+            enabled,
+            CURRENT_TERMS_VERSION,
+            now,
+        )
+    return {"ok": True, "ai_improvement_opt_in": enabled}
 
 
 @app.get("/me")

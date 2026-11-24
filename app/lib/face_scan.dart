@@ -35,7 +35,7 @@ class FaceScanScreen extends StatefulWidget {
 enum _Step { center, blink, turn, done }
 
 class _FaceScanScreenState extends State<FaceScanScreen>
-    with WidgetsBindingObserver {
+    with WidgetsBindingObserver, SingleTickerProviderStateMixin {
   static const _timeLimit = Duration(seconds: 40);
   // Ángulo (grados) que se considera "de frente" y "cabeza girada".
   static const _maxFrontalYaw = 12.0;
@@ -53,8 +53,13 @@ class _FaceScanScreenState extends State<FaceScanScreen>
 
   CameraController? _camera;
   String? _cameraError;
+  bool _opening = false;
   bool _processing = false;
   bool _capturing = false;
+  late final AnimationController _pulseController = AnimationController(
+    vsync: this,
+    duration: const Duration(milliseconds: 700),
+  );
 
   _Step _step = _Step.center;
   String _hint = 'Preparando la cámara…';
@@ -77,6 +82,7 @@ class _FaceScanScreenState extends State<FaceScanScreen>
     WidgetsBinding.instance.removeObserver(this);
     _camera?.dispose();
     _detector.close();
+    _pulseController.dispose();
     super.dispose();
   }
 
@@ -92,28 +98,52 @@ class _FaceScanScreenState extends State<FaceScanScreen>
     }
   }
 
-  void _start() {
+  void _reset() {
     _step = _Step.center;
     _front = null;
     _sawEyesClosed = false;
     _readySince = null;
     _timedOut = false;
+    _faceOk = false;
+    _cameraError = null;
+    _hint = _camera == null
+        ? 'Preparando la cámara…'
+        : 'Ubica tu rostro dentro del óvalo';
     _deadline = DateTime.now().add(_timeLimit);
+    if (_pulseController.isAnimating) _pulseController.reset();
+  }
+
+  void _start() {
+    _reset();
+    if (_camera == null) _openCamera();
+  }
+
+  void _retry() {
+    setState(_reset);
     if (_camera == null) _openCamera();
   }
 
   Future<void> _openCamera() async {
+    if (_opening || _camera != null) return;
+    setState(() {
+      _opening = true;
+      _cameraError = null;
+      _hint = 'Preparando la cámara…';
+    });
+    CameraController? camera;
     try {
       final cameras = await availableCameras();
       if (cameras.isEmpty) {
-        setState(() => _cameraError = 'Este teléfono no tiene cámara.');
+        if (mounted) {
+          setState(() => _cameraError = 'Este teléfono no tiene cámara.');
+        }
         return;
       }
       final description = cameras.firstWhere(
         (c) => c.lensDirection == CameraLensDirection.front,
         orElse: () => cameras.first,
       );
-      final camera = CameraController(
+      camera = CameraController(
         description,
         ResolutionPreset.medium,
         enableAudio: false,
@@ -122,22 +152,33 @@ class _FaceScanScreenState extends State<FaceScanScreen>
             : ImageFormatGroup.bgra8888,
       );
       await camera.initialize();
+      final opened = camera;
       if (!mounted) {
-        camera.dispose();
+        await opened.dispose();
         return;
       }
-      await camera.startImageStream(_onFrame);
+      await opened.startImageStream(_onFrame);
+      if (!mounted) {
+        await opened.dispose();
+        return;
+      }
       setState(() {
-        _camera = camera;
+        _camera = opened;
         _cameraError = null;
         _hint = 'Ubica tu rostro dentro del óvalo';
       });
-    } on CameraException catch (e) {
+    } catch (e) {
+      await camera?.dispose();
+      if (!mounted) return;
       setState(() {
-        _cameraError = e.code.contains('Access')
-            ? 'Necesitamos permiso para usar la cámara.'
-            : 'No se pudo abrir la cámara.';
+        _cameraError = e is CameraException
+            ? e.code.contains('Access')
+                  ? 'Necesitamos permiso para usar la cámara.'
+                  : 'No se pudo abrir la cámara. Inténtalo de nuevo.'
+            : 'No se pudo abrir la cámara. Inténtalo de nuevo.';
       });
+    } finally {
+      _opening = false;
     }
   }
 
@@ -259,6 +300,7 @@ class _FaceScanScreenState extends State<FaceScanScreen>
       _readySince = null;
     }
 
+    if (ok && !_faceOk) _pulseController.forward(from: 0);
     if (hint != _hint || ok != _faceOk) {
       setState(() {
         _hint = hint;
@@ -301,63 +343,191 @@ class _FaceScanScreenState extends State<FaceScanScreen>
     final camera = _camera;
     final scheme = Theme.of(context).colorScheme;
     final ovalColor = _faceOk ? Colors.greenAccent : Colors.white;
+    final showError = _cameraError != null || _timedOut;
 
     return Scaffold(
-      backgroundColor: Colors.black,
+      backgroundColor: const Color(0xFF070A18),
       body: Stack(
         fit: StackFit.expand,
         children: [
           if (camera != null && camera.value.isInitialized)
             _FullScreenPreview(camera: camera)
-          else if (_cameraError == null)
-            const Center(child: CircularProgressIndicator()),
-          // RepaintBoundary: el óvalo no se redibuja con cada cuadro de la cámara.
+          else
+            const DecoratedBox(
+              decoration: BoxDecoration(
+                gradient: LinearGradient(
+                  begin: Alignment.topLeft,
+                  end: Alignment.bottomRight,
+                  colors: [Color(0xFF1A237E), Color(0xFF070A18)],
+                ),
+              ),
+            ),
+          const DecoratedBox(
+            decoration: BoxDecoration(
+              gradient: LinearGradient(
+                begin: Alignment.topCenter,
+                end: Alignment.bottomCenter,
+                colors: [
+                  Color(0x99070A18),
+                  Colors.transparent,
+                  Color(0xB3070A18),
+                ],
+              ),
+            ),
+          ),
           RepaintBoundary(
-            child: CustomPaint(painter: _OvalMaskPainter(color: ovalColor)),
+            child: AnimatedBuilder(
+              animation: _pulseController,
+              builder: (context, _) => CustomPaint(
+                painter: _OvalMaskPainter(
+                  color: ovalColor,
+                  progress: _pulseController.value,
+                ),
+              ),
+            ),
           ),
           SafeArea(
             child: Column(
               children: [
-                Align(
-                  alignment: Alignment.centerLeft,
-                  child: IconButton(
-                    icon: const Icon(Icons.close, color: Colors.white),
-                    tooltip: 'Cancelar',
-                    onPressed: () => Navigator.of(context).pop(),
-                  ),
-                ),
-                _StepDots(step: _step),
-                const SizedBox(height: 12),
                 Padding(
-                  padding: const EdgeInsets.symmetric(horizontal: 24),
-                  child: Text(
-                    _cameraError ?? _hint,
-                    textAlign: TextAlign.center,
-                    style: const TextStyle(
-                      color: Colors.white,
-                      fontSize: 22,
-                      fontWeight: FontWeight.w600,
-                    ),
+                  padding: const EdgeInsets.fromLTRB(16, 8, 16, 0),
+                  child: Row(
+                    children: [
+                      Container(
+                        decoration: BoxDecoration(
+                          color: Colors.black45,
+                          shape: BoxShape.circle,
+                          border: Border.all(color: Colors.white30),
+                        ),
+                        child: IconButton(
+                          icon: const Icon(Icons.close, color: Colors.white),
+                          tooltip: 'Cancelar',
+                          onPressed: () => Navigator.of(context).pop(),
+                        ),
+                      ),
+                      const SizedBox(width: 12),
+                      const Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              'Escaneo facial',
+                              style: TextStyle(
+                                color: Colors.white,
+                                fontSize: 18,
+                                fontWeight: FontWeight.w700,
+                              ),
+                            ),
+                            SizedBox(height: 2),
+                            Text(
+                              'Sigue las instrucciones',
+                              style: TextStyle(
+                                color: Colors.white70,
+                                fontSize: 12,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                      Container(
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 10,
+                          vertical: 6,
+                        ),
+                        decoration: BoxDecoration(
+                          color: Colors.black45,
+                          borderRadius: BorderRadius.circular(999),
+                          border: Border.all(color: Colors.white24),
+                        ),
+                        child: const Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Icon(
+                              Icons.lock_outline,
+                              color: Colors.white70,
+                              size: 14,
+                            ),
+                            SizedBox(width: 6),
+                            Text(
+                              'Seguro',
+                              style: TextStyle(
+                                color: Colors.white70,
+                                fontSize: 11,
+                                fontWeight: FontWeight.w600,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ],
                   ),
                 ),
+                const SizedBox(height: 18),
+                if (!showError) _StepDots(step: _step),
                 const Spacer(),
-                if (_timedOut)
-                  Padding(
-                    padding: const EdgeInsets.all(24),
-                    child: FilledButton(
-                      onPressed: () => setState(_start),
-                      child: const Text('Intentar de nuevo'),
-                    ),
+                if (showError)
+                  _ScannerNotice(
+                    icon: _cameraError != null
+                        ? Icons.videocam_off_outlined
+                        : Icons.timer_off_outlined,
+                    title: _cameraError != null
+                        ? 'No pudimos abrir la cámara'
+                        : 'Tiempo agotado',
+                    message: _cameraError ?? 'No detectamos tu rostro a tiempo. Revisa la luz e inténtalo de nuevo.',
+                    color: _cameraError != null ? scheme.error : Colors.amber,
+                    onRetry: _retry,
                   )
                 else
                   Padding(
-                    padding: const EdgeInsets.all(24),
-                    child: Text(
-                      'Busca buena luz y quítate gafas oscuras o gorra.',
-                      textAlign: TextAlign.center,
-                      style: TextStyle(color: scheme.surfaceContainerHighest),
+                    padding: const EdgeInsets.symmetric(horizontal: 28),
+                    child: AnimatedSwitcher(
+                      duration: const Duration(milliseconds: 180),
+                      child: Container(
+                        key: ValueKey(_hint),
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 18,
+                          vertical: 12,
+                        ),
+                        decoration: BoxDecoration(
+                          color: Colors.black54,
+                          borderRadius: BorderRadius.circular(18),
+                          border: Border.all(color: Colors.white24),
+                        ),
+                        child: Text(
+                          _hint,
+                          textAlign: TextAlign.center,
+                          style: const TextStyle(
+                            color: Colors.white,
+                            fontSize: 18,
+                            fontWeight: FontWeight.w600,
+                          ),
+                        ),
+                      ),
                     ),
                   ),
+                const SizedBox(height: 16),
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(24, 0, 24, 24),
+                  child: Row(
+                    children: [
+                      const Icon(
+                        Icons.wb_sunny_outlined,
+                        color: Colors.amber,
+                        size: 18,
+                      ),
+                      const SizedBox(width: 8),
+                      Expanded(
+                        child: Text(
+                          'Busca buena luz y quítate gafas oscuras o gorra.',
+                          style: TextStyle(
+                            color: scheme.surfaceContainerHighest,
+                            fontSize: 12,
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
               ],
             ),
           ),
@@ -393,9 +563,10 @@ class _FullScreenPreview extends StatelessWidget {
 
 /// Oscurece todo menos un óvalo en el centro, donde va la cara.
 class _OvalMaskPainter extends CustomPainter {
-  _OvalMaskPainter({required this.color});
+  _OvalMaskPainter({required this.color, required this.progress});
 
   final Color color;
+  final double progress;
 
   static Rect ovalRect(Size size) {
     final width = size.width * 0.72;
@@ -422,13 +593,22 @@ class _OvalMaskPainter extends CustomPainter {
         ..style = PaintingStyle.stroke
         ..strokeWidth = 4,
     );
+    if (progress > 0) {
+      canvas.drawOval(
+        oval.inflate(8 + 14 * progress),
+        Paint()
+          ..color = color.withValues(alpha: (1 - progress) * 0.55)
+          ..style = PaintingStyle.stroke
+          ..strokeWidth = 3,
+      );
+    }
   }
 
   @override
-  bool shouldRepaint(_OvalMaskPainter old) => old.color != color;
+  bool shouldRepaint(_OvalMaskPainter old) =>
+      old.color != color || old.progress != progress;
 }
 
-/// Tres puntos que muestran el avance: de frente, parpadeo, giro.
 class _StepDots extends StatelessWidget {
   const _StepDots({required this.step});
 
@@ -436,28 +616,146 @@ class _StepDots extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    const labels = ['De frente', 'Parpadeo', 'Giro'];
-    return Row(
-      mainAxisAlignment: MainAxisAlignment.center,
+    const labels = ['Centrar', 'Parpadeo', 'Giro'];
+    const icons = [
+      Icons.face_outlined,
+      Icons.remove_red_eye_outlined,
+      Icons.rotate_right_outlined,
+    ];
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+      decoration: BoxDecoration(
+        color: Colors.black45,
+        borderRadius: BorderRadius.circular(999),
+        border: Border.all(color: Colors.white24),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          for (var i = 0; i < labels.length; i++) ...[
+            if (i > 0)
+              Container(
+                width: 18,
+                height: 2,
+                color: i <= step.index ? Colors.greenAccent : Colors.white24,
+              ),
+            _StepDot(
+              icon: icons[i],
+              label: labels[i],
+              done: i < step.index,
+              current: i == step.index,
+            ),
+          ],
+        ],
+      ),
+    );
+  }
+}
+
+class _StepDot extends StatelessWidget {
+  const _StepDot({
+    required this.icon,
+    required this.label,
+    required this.done,
+    required this.current,
+  });
+
+  final IconData icon;
+  final String label;
+  final bool done;
+  final bool current;
+
+  @override
+  Widget build(BuildContext context) {
+    final Color background = done
+        ? Colors.greenAccent
+        : current
+        ? Colors.white
+        : Colors.white24;
+    final Color foreground = done
+        ? Colors.black
+        : current
+        ? const Color(0xFF1A237E)
+        : Colors.white70;
+    return Column(
       children: [
-        for (var i = 0; i < labels.length; i++)
-          Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 10),
-            child: Column(
-              children: [
-                Icon(
-                  i < step.index ? Icons.check_circle : Icons.circle_outlined,
-                  color: i <= step.index ? Colors.greenAccent : Colors.white54,
-                  size: 20,
-                ),
-                Text(
-                  labels[i],
-                  style: const TextStyle(color: Colors.white70, fontSize: 12),
-                ),
-              ],
+        CircleAvatar(
+          radius: 15,
+          backgroundColor: background,
+          child: Icon(done ? Icons.check : icon, size: 15, color: foreground),
+        ),
+        const SizedBox(height: 4),
+        Text(
+          label,
+          style: TextStyle(
+            color: current || done ? Colors.white : Colors.white60,
+            fontSize: 10,
+            fontWeight: current ? FontWeight.w700 : FontWeight.w500,
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+class _ScannerNotice extends StatelessWidget {
+  const _ScannerNotice({
+    required this.icon,
+    required this.title,
+    required this.message,
+    required this.color,
+    required this.onRetry,
+  });
+
+  final IconData icon;
+  final String title;
+  final String message;
+  final Color color;
+  final VoidCallback onRetry;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      margin: const EdgeInsets.symmetric(horizontal: 24),
+      padding: const EdgeInsets.all(18),
+      decoration: BoxDecoration(
+        color: Colors.black54,
+        borderRadius: BorderRadius.circular(22),
+        border: Border.all(color: color.withValues(alpha: 0.5)),
+      ),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(icon, color: color, size: 30),
+          const SizedBox(height: 10),
+          Text(
+            title,
+            textAlign: TextAlign.center,
+            style: const TextStyle(
+              color: Colors.white,
+              fontSize: 17,
+              fontWeight: FontWeight.w700,
             ),
           ),
-      ],
+          const SizedBox(height: 6),
+          Text(
+            message,
+            textAlign: TextAlign.center,
+            style: const TextStyle(color: Colors.white70, fontSize: 13),
+          ),
+          const SizedBox(height: 14),
+          OutlinedButton.icon(
+            style: OutlinedButton.styleFrom(
+              shape: const StadiumBorder(),
+              foregroundColor: Colors.white,
+              side: const BorderSide(color: Colors.white54),
+            ),
+            onPressed: onRetry,
+            icon: const Icon(Icons.refresh, size: 18),
+            label: const Text('Intentar de nuevo'),
+          ),
+        ],
+      ),
     );
   }
 }
